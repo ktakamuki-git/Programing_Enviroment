@@ -194,4 +194,66 @@ class ProgramingEnviromentApp:
             self.log("PyInstaller Build...")
             self.execute_build(target_dir, file_name)
 
-            self.log("All processes
+            self.log("All processes completed successfully!", "success")
+            messagebox.showinfo("Success", f"Build for {prog_name} completed!")
+            if os.path.exists(dist_path): os.startfile(dist_path)
+        except Exception as e:
+            self.log(f"CRITICAL ERROR: {str(e)}", "error")
+            messagebox.showerror("Pipeline Failed", str(e))
+        finally:
+            # --- 処理が終わったら成否に関わらずコピー ---
+            self.copy_log_to_clipboard()
+            self.action_btn.config(state="normal", text="🚀 Save, Push & Build EXE")
+
+    def organize_old_files(self, target_dir, current_file_name, prog_name):
+        old_dir = os.path.join(target_dir, "old")
+        dist_dir = os.path.join(target_dir, "dist")
+        current_base = os.path.splitext(current_file_name)[0]
+        if not os.path.exists(old_dir): os.makedirs(old_dir)
+        for f in os.listdir(target_dir):
+            if f.endswith((".py", ".spec")) and f != current_file_name and f != f"{current_base}.spec":
+                if f in ["old", "dist", "build"]: continue
+                if os.path.isdir(os.path.join(target_dir, f)): continue
+                if f.startswith(prog_name):
+                    self.log(f"Moving {f} to old/")
+                    try: shutil.move(os.path.join(target_dir, f), os.path.join(old_dir, f))
+                    except: pass
+        if os.path.exists(dist_dir):
+            for f in os.listdir(dist_dir):
+                if f.endswith(".exe") and f != f"{current_base}.exe":
+                    if f.startswith(prog_name):
+                        self.log(f"Moving old EXE: {f} to old/")
+                        try: shutil.move(os.path.join(dist_dir, f), os.path.join(old_dir, f))
+                        except: pass
+
+    def execute_git(self, target_dir, file_name):
+        try:
+            repo = git.Repo(target_dir) if os.path.exists(os.path.join(target_dir, ".git")) else git.Repo.init(target_dir)
+            repo.index.add([file_name]); repo.index.commit(f"Auto-update: {file_name} (v{VERSION})")
+            if 'origin' not in [r.name for r in repo.remotes]:
+                repo.create_remote('origin', url=self.config["github_url"])
+            origin = repo.remote(name='origin')
+            branch = "main"
+            try: branch = repo.active_branch.name
+            except: pass
+            origin.push(branch)
+            self.log(f"Git push success: {branch}", "success")
+        except Exception as e: self.log(f"Git skip: {e}", "info")
+
+    def execute_build(self, target_dir, file_name):
+        dist_path = os.path.abspath(os.path.join(target_dir, "dist"))
+        build_path = os.path.abspath(os.path.join(target_dir, "build"))
+        output_name = os.path.splitext(file_name)[0]
+        cmd = ["py", f"-{TARGET_PYTHON}", "-m", "PyInstaller", "--onefile", "--noconsole", f"--name={output_name}", f"--distpath={dist_path}", f"--workpath={build_path}", file_name]
+        process = subprocess.Popen(cmd, cwd=target_dir, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None: break
+            if line: self.log(line.strip())
+        if process.returncode != 0: raise Exception("Build failed.")
+        if not os.path.exists(os.path.join(dist_path, f"{output_name}.exe")): raise Exception("EXE not found.")
+
+if __name__ == "__main__":
+    root = tk.Tk(); app = ProgramingEnviromentApp(root); root.mainloop()
+
+# ---ここまで---
